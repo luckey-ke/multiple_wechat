@@ -192,26 +192,59 @@ class WechatHelp {
     async startWx(itemData=null) {
         let wechatFilePath = await this.#getWechatDocumentPath();
 
-        // ★ 4.0+ 修复：先杀掉所有正在运行的微信进程，释放 global_config 文件锁
-        // WeChat 4.0+ 运行时会持续锁定 global_config 文件，导致 copyFileSync 失败
-        await this.execShell('taskkill /IM Weixin.exe /F /T').catch(e => {
-            logger.error("杀微信进程失败（可能没有运行）", e?.message);
-        });
-        // 等待进程完全退出、文件锁释放
-        await new Promise(r => setTimeout(r, 500));
-
         // 重新登陆一个新的微信账号
         if (itemData){
             if (!fs.existsSync(itemData.path)){
                 throw new Error("微信账号信息不存在");
             }
 
-            await this.execShell('del "' + wechatFilePath + '\\all_users\\config\\global_config" /f /q');
-            await this.execShell('del "' + wechatFilePath + '\\all_users\\config\\global_config.crc" /f /q');
+            const configPath = wechatFilePath + "\\all_users\\config\\global_config";
+            const crcPath = wechatFilePath + "\\all_users\\config\\global_config.crc";
 
-            // 复制保存的微信账号登陆信息  覆盖文件
-            fs.copyFileSync(itemData.path + "\\global_config", wechatFilePath + "\\all_users\\config\\global_config");
-            fs.copyFileSync(itemData.path + "\\global_config.crc", wechatFilePath + "\\all_users\\config\\global_config.crc");
+            // ★ 4.0+ 修复：不杀进程，只释放文件句柄（handle.exe 关闭锁，不 kill 进程）
+            let lockReleased = false;
+            try {
+                await releaseFileLock(configPath);
+                lockReleased = true;
+                logger.info("成功释放 global_config 文件锁");
+            } catch (e) {
+                logger.warn("releaseFileLock 失败，尝试 rename 策略", e?.message);
+            }
+            try {
+                await releaseFileLock(crcPath);
+            } catch (e) {
+                logger.warn("释放 global_config.crc 锁失败", e?.message);
+            }
+
+            // 策略1：直接删除+复制（文件锁已释放时）
+            if (lockReleased) {
+                try {
+                    fs.rmSync(configPath, { force: true });
+                    fs.rmSync(crcPath, { force: true });
+                    fs.copyFileSync(itemData.path + "\\global_config", configPath);
+                    fs.copyFileSync(itemData.path + "\\global_config.crc", crcPath);
+                } catch (e) {
+                    logger.error("直接复制失败，尝试 rename 策略", e?.message);
+                    lockReleased = false;
+                }
+            }
+
+            // 策略2：rename 旧文件（Windows 允许 rename 被锁定的文件），再复制新文件
+            if (!lockReleased) {
+                try {
+                    if (fs.existsSync(configPath)) {
+                        fs.renameSync(configPath, configPath + ".bak");
+                    }
+                    if (fs.existsSync(crcPath)) {
+                        fs.renameSync(crcPath, crcPath + ".bak");
+                    }
+                    fs.copyFileSync(itemData.path + "\\global_config", configPath);
+                    fs.copyFileSync(itemData.path + "\\global_config.crc", crcPath);
+                } catch (e) {
+                    logger.error("rename 策略也失败了", e?.message);
+                    throw new Error("无法替换 global_config 文件，请手动关闭微信后重试: " + e.message);
+                }
+            }
         }else{
             fs.rmSync(wechatFilePath + "\\all_users\\config\\global_config", { force: true });
             fs.rmSync(wechatFilePath + "\\all_users\\config\\global_config.crc", { force: true });
