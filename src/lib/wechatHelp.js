@@ -192,8 +192,13 @@ class WechatHelp {
     async startWx(itemData=null) {
         let wechatFilePath = await this.#getWechatDocumentPath();
 
-        // await releaseFileLock(wechatFilePath + "\\all_users\\config\\global_config")
-        // await releaseFileLock(wechatFilePath + "\\all_users\\config\\global_config.crc")
+        // ★ 4.0+ 修复：先杀掉所有正在运行的微信进程，释放 global_config 文件锁
+        // WeChat 4.0+ 运行时会持续锁定 global_config 文件，导致 copyFileSync 失败
+        await this.execShell('taskkill /IM Weixin.exe /F /T').catch(e => {
+            logger.error("杀微信进程失败（可能没有运行）", e?.message);
+        });
+        // 等待进程完全退出、文件锁释放
+        await new Promise(r => setTimeout(r, 500));
 
         // 重新登陆一个新的微信账号
         if (itemData){
@@ -203,15 +208,13 @@ class WechatHelp {
 
             await this.execShell('del "' + wechatFilePath + '\\all_users\\config\\global_config" /f /q');
             await this.execShell('del "' + wechatFilePath + '\\all_users\\config\\global_config.crc" /f /q');
-            // fs.renameSync(wechatFilePath + "\\all_users\\config\\global_config", wechatFilePath + "\\all_users\\config\\global_config.1")
-            // fs.renameSync(wechatFilePath + "\\all_users\\config\\global_config.crc", wechatFilePath + "\\all_users\\config\\global_config.crc.1")
 
             // 复制保存的微信账号登陆信息  覆盖文件
             fs.copyFileSync(itemData.path + "\\global_config", wechatFilePath + "\\all_users\\config\\global_config");
             fs.copyFileSync(itemData.path + "\\global_config.crc", wechatFilePath + "\\all_users\\config\\global_config.crc");
         }else{
-            fs.rmSync(wechatFilePath + "\\all_users\\config\\global_config")
-            fs.rmSync(wechatFilePath + "\\all_users\\config\\global_config.crc")
+            fs.rmSync(wechatFilePath + "\\all_users\\config\\global_config", { force: true });
+            fs.rmSync(wechatFilePath + "\\all_users\\config\\global_config.crc", { force: true });
         }
 
         logger.info("startWx")
