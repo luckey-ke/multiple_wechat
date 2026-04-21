@@ -326,21 +326,11 @@ class WechatHelp {
             }
 
             // 恢复账号专属的登录数据（key_info.db 等文件）
-            // 策略：不删除已有 login 目录，只确保目标账号目录存在且有数据。
-            // 微信免登依赖 all_users/login/ 下的已有会话数据，删除会导致需要重新扫码。
             const savedLoginDir = path.join(itemData.path, "login_data");
             if (fs.existsSync(savedLoginDir)) {
-                const loginTargetDir = path.join(wechatFilePath, "all_users", "login", itemData.id);
-                if (!fs.existsSync(loginTargetDir)) {
-                    // 目标目录不存在时，从备份恢复
-                    this.#copyDirSync(savedLoginDir, loginTargetDir);
-                    logger.info(`目标登录目录不存在，已从备份恢复: ${loginTargetDir}`);
-                } else {
-                    // 目标目录已存在，保留它（微信需要这些会话数据来免登）
-                    logger.info(`目标登录目录已存在，保留现有数据: ${loginTargetDir}`);
-                }
+                this.#restoreLoginData(wechatFilePath, itemData.id, savedLoginDir);
             } else {
-                logger.info(`账号 ${itemData.id} 无 login_data 备份，跳过登录数据处理`);
+                logger.info(`账号 ${itemData.id} 无 login_data 备份，跳过登录数据恢复`);
             }
         }else{
             fs.rmSync(path.join(wechatFilePath, "all_users", "config", "global_config"), { force: true });
