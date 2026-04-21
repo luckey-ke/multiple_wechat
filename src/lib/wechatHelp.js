@@ -218,78 +218,6 @@ class WechatHelp {
     }
 
     /**
-     * 递归复制目录（仅复制文件，跳过子目录）
-     * @param {string} src - 源目录
-     * @param {string} dst - 目标目录
-     */
-    #copyDirSync(src, dst) {
-        if (!fs.existsSync(dst)) {
-            fs.mkdirSync(dst, { recursive: true });
-        }
-        const entries = fs.readdirSync(src, { withFileTypes: true });
-        for (const entry of entries) {
-            const srcPath = path.join(src, entry.name);
-            const dstPath = path.join(dst, entry.name);
-            if (entry.isDirectory()) {
-                this.#copyDirSync(srcPath, dstPath);
-            } else {
-                try {
-                    fs.copyFileSync(srcPath, dstPath);
-                } catch (e) {
-                    logger.warn(`复制文件失败: ${srcPath} -> ${dstPath}`, e?.message);
-                }
-            }
-        }
-    }
-
-    /**
-     * 恢复账号的登录数据到 all_users/login/<wxid>/
-     * @param {string} wechatFilePath - 微信文档根路径
-     * @param {string} wxid - 微信账号ID
-     * @param {string} savedLoginDir - 备份的 login_data 目录
-     */
-    #restoreLoginData(wechatFilePath, wxid, savedLoginDir) {
-        const loginTargetDir = path.join(wechatFilePath, "all_users", "login", wxid);
-
-        if (!fs.existsSync(savedLoginDir)) {
-            logger.info(`备份的登录数据不存在: ${savedLoginDir}`);
-            return;
-        }
-
-        // 确保目标目录存在
-        if (!fs.existsSync(loginTargetDir)) {
-            fs.mkdirSync(loginTargetDir, { recursive: true });
-        }
-
-        // 逐文件复制，跳过被锁定的文件（静默处理）
-        const entries = fs.readdirSync(savedLoginDir, { withFileTypes: true });
-        for (const entry of entries) {
-            const srcPath = path.join(savedLoginDir, entry.name);
-            const dstPath = path.join(loginTargetDir, entry.name);
-
-            if (entry.isDirectory()) {
-                this.#copyDirSync(srcPath, dstPath);
-            } else {
-                try {
-                    // 先尝试 rename 旧文件（处理 Windows 文件锁）
-                    if (fs.existsSync(dstPath)) {
-                        try {
-                            fs.rmSync(dstPath, { force: true });
-                        } catch {
-                            fs.renameSync(dstPath, dstPath + ".bak");
-                        }
-                    }
-                    fs.copyFileSync(srcPath, dstPath);
-                } catch (e) {
-                    logger.warn(`恢复登录文件失败: ${srcPath}`, e?.message);
-                }
-            }
-        }
-
-        logger.info(`已恢复账号 ${wxid} 的登录数据到 ${loginTargetDir}`);
-    }
-
-    /**
      * 启动微信
      * @returns {Promise<void>}
      * @param itemData
@@ -323,14 +251,6 @@ class WechatHelp {
             } catch (e) {
                 logger.error("复制 global_config 失败", e?.message);
                 throw new Error("无法替换 global_config 文件，请手动关闭微信后重试: " + e.message);
-            }
-
-            // 恢复账号专属的登录数据（key_info.db 等文件）
-            const savedLoginDir = path.join(itemData.path, "login_data");
-            if (fs.existsSync(savedLoginDir)) {
-                this.#restoreLoginData(wechatFilePath, itemData.id, savedLoginDir);
-            } else {
-                logger.info(`账号 ${itemData.id} 无 login_data 备份，跳过登录数据恢复`);
             }
         }else{
             fs.rmSync(path.join(wechatFilePath, "all_users", "config", "global_config"), { force: true });
@@ -410,36 +330,6 @@ class WechatHelp {
         const lastImgPath = findLatestFileAll(path.join(wechatFilePath, "all_users", "head_imgs", "0"))
         if (lastImgPath){
             fs.copyFileSync(lastImgPath, path.join(wxidPath, "logo.png"));
-        }
-
-        // 备份该账号专属的登录数据（all_users/login/<wxid>/ 下的 key_info.db 等文件）
-        const loginSrcDir = path.join(wechatFilePath, "all_users", "login", wxid);
-        const loginDstDir = path.join(wxidPath, "login_data");
-        if (fs.existsSync(loginSrcDir)) {
-            if (!fs.existsSync(loginDstDir)) {
-                fs.mkdirSync(loginDstDir, { recursive: true });
-            }
-            const loginFiles = fs.readdirSync(loginSrcDir, { withFileTypes: true });
-            for (const entry of loginFiles) {
-                const srcPath = path.join(loginSrcDir, entry.name);
-                const dstPath = path.join(loginDstDir, entry.name);
-                if (entry.isFile()) {
-                    try {
-                        fs.copyFileSync(srcPath, dstPath);
-                    } catch (e) {
-                        logger.warn(`备份登录文件失败: ${srcPath}`, e?.message);
-                    }
-                } else if (entry.isDirectory()) {
-                    try {
-                        this.#copyDirSync(srcPath, dstPath);
-                    } catch (e) {
-                        logger.warn(`备份登录目录失败: ${srcPath}`, e?.message);
-                    }
-                }
-            }
-            logger.info(`已备份账号 ${wxid} 的登录数据`);
-        } else {
-            logger.warn(`账号 ${wxid} 的登录目录不存在: ${loginSrcDir}`);
         }
 
         wxData = {
