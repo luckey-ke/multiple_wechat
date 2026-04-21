@@ -280,13 +280,7 @@ class WechatHelp {
         // 2. 从备份恢复到 all_users/login/<wxid>/ 目录
         this.#copyDirSync(savedLoginDir, loginTargetDir);
 
-        // 验证恢复结果
-        if (fs.existsSync(loginTargetDir)) {
-            const restored = fs.readdirSync(loginTargetDir);
-            logger.info(`已恢复登录数据到 ${loginTargetDir}, 文件: [${restored.join(', ')}]`);
-        } else {
-            logger.error(`恢复后目标目录不存在: ${loginTargetDir}`);
-        }
+        logger.info(`已从备份恢复登录数据到 ${loginTargetDir}`);
     }
 
     /**
@@ -420,11 +414,9 @@ class WechatHelp {
                 fs.mkdirSync(loginDstDir, { recursive: true });
             }
             const loginFiles = fs.readdirSync(loginSrcDir, { withFileTypes: true });
-            logger.info(`备份登录数据: ${loginSrcDir}, 文件数: ${loginFiles.length}`);
             for (const entry of loginFiles) {
                 const srcPath = path.join(loginSrcDir, entry.name);
                 const dstPath = path.join(loginDstDir, entry.name);
-                logger.info(`  备份: ${entry.name} (${entry.isDirectory() ? 'dir' : 'file'})`);
                 if (entry.isFile()) {
                     try {
                         fs.copyFileSync(srcPath, dstPath);
@@ -439,7 +431,7 @@ class WechatHelp {
                     }
                 }
             }
-            logger.info(`已备份账号 ${wxid} 的登录数据到 ${loginDstDir}`);
+            logger.info(`已备份账号 ${wxid} 的登录数据`);
         } else {
             logger.warn(`账号 ${wxid} 的登录目录不存在: ${loginSrcDir}`);
         }
