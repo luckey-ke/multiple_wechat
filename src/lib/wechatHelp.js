@@ -244,43 +244,49 @@ class WechatHelp {
 
     /**
      * 恢复账号的登录数据到 all_users/login/<wxid>/
-     * 策略：先删除整个 all_users/login/ 目录，再从备份恢复目标账号目录，
-     * 确保登录数据完全一致，无任何残留。
      * @param {string} wechatFilePath - 微信文档根路径
      * @param {string} wxid - 微信账号ID
-     * @param {string} savedLoginDir - 备份的 login_data 目录（内含原 login/<wxid>/ 下的文件）
+     * @param {string} savedLoginDir - 备份的 login_data 目录
      */
     #restoreLoginData(wechatFilePath, wxid, savedLoginDir) {
-        const loginRootDir = path.join(wechatFilePath, "all_users", "login");
-        const loginTargetDir = path.join(loginRootDir, wxid);
+        const loginTargetDir = path.join(wechatFilePath, "all_users", "login", wxid);
 
         if (!fs.existsSync(savedLoginDir)) {
             logger.info(`备份的登录数据不存在: ${savedLoginDir}`);
             return;
         }
 
-        // 1. 删除整个 login 根目录，彻底清除残留数据
-        if (fs.existsSync(loginRootDir)) {
-            try {
-                fs.rmSync(loginRootDir, { recursive: true, force: true });
-                logger.info(`已清理整个 login 目录: ${loginRootDir}`);
-            } catch (e) {
-                logger.warn(`清理 login 目录失败: ${loginRootDir}`, e?.message);
-                // 回退：逐个删除子目录
+        // 确保目标目录存在
+        if (!fs.existsSync(loginTargetDir)) {
+            fs.mkdirSync(loginTargetDir, { recursive: true });
+        }
+
+        // 逐文件复制，跳过被锁定的文件（静默处理）
+        const entries = fs.readdirSync(savedLoginDir, { withFileTypes: true });
+        for (const entry of entries) {
+            const srcPath = path.join(savedLoginDir, entry.name);
+            const dstPath = path.join(loginTargetDir, entry.name);
+
+            if (entry.isDirectory()) {
+                this.#copyDirSync(srcPath, dstPath);
+            } else {
                 try {
-                    fs.readdirSync(loginRootDir, { withFileTypes: true })
-                        .filter(d => d.isDirectory())
-                        .forEach(d => {
-                            try { fs.rmSync(path.join(loginRootDir, d.name), { recursive: true, force: true }); } catch {}
-                        });
-                } catch {}
+                    // 先尝试 rename 旧文件（处理 Windows 文件锁）
+                    if (fs.existsSync(dstPath)) {
+                        try {
+                            fs.rmSync(dstPath, { force: true });
+                        } catch {
+                            fs.renameSync(dstPath, dstPath + ".bak");
+                        }
+                    }
+                    fs.copyFileSync(srcPath, dstPath);
+                } catch (e) {
+                    logger.warn(`恢复登录文件失败: ${srcPath}`, e?.message);
+                }
             }
         }
 
-        // 2. 从备份恢复到 all_users/login/<wxid>/ 目录
-        this.#copyDirSync(savedLoginDir, loginTargetDir);
-
-        logger.info(`已从备份恢复登录数据到 ${loginTargetDir}`);
+        logger.info(`已恢复账号 ${wxid} 的登录数据到 ${loginTargetDir}`);
     }
 
     /**
