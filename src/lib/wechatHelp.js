@@ -329,53 +329,18 @@ class WechatHelp {
             // 策略：不删除已有 login 目录，只确保目标账号目录存在且有数据。
             // 微信免登依赖 all_users/login/ 下的已有会话数据，删除会导致需要重新扫码。
             const savedLoginDir = path.join(itemData.path, "login_data");
-            const loginRootDir = path.join(wechatFilePath, "all_users", "login");
-
-            // 检查 login 目录是否已有会话数据
-            let hasExistingSession = false;
-            if (fs.existsSync(loginRootDir)) {
-                hasExistingSession = fs.readdirSync(loginRootDir, { withFileTypes: true })
-                    .some(d => d.isDirectory());
-            }
-
             if (fs.existsSync(savedLoginDir)) {
-                const loginTargetDir = path.join(loginRootDir, itemData.id);
+                const loginTargetDir = path.join(wechatFilePath, "all_users", "login", itemData.id);
                 if (!fs.existsSync(loginTargetDir)) {
                     // 目标目录不存在时，从备份恢复
                     this.#copyDirSync(savedLoginDir, loginTargetDir);
-                    hasExistingSession = true;
                     logger.info(`目标登录目录不存在，已从备份恢复: ${loginTargetDir}`);
                 } else {
                     // 目标目录已存在，保留它（微信需要这些会话数据来免登）
-                    hasExistingSession = true;
                     logger.info(`目标登录目录已存在，保留现有数据: ${loginTargetDir}`);
                 }
             } else {
                 logger.info(`账号 ${itemData.id} 无 login_data 备份，跳过登录数据处理`);
-            }
-
-            // 关键修复：如果 login 目录没有任何会话数据，尝试从其他已保存账号复制
-            // 微信免登需要至少一个会话上下文来引导登录
-            if (!hasExistingSession) {
-                logger.info(`login 目录为空，尝试从其他已保存账号获取会话数据`);
-                const configDirPath = path.join(wechatFilePath, "all_users", "plugin_save_config");
-                if (fs.existsSync(configDirPath)) {
-                    const dirs = fs.readdirSync(configDirPath, { withFileTypes: true });
-                    for (const dir of dirs) {
-                        if (!dir.isDirectory() || dir.name === itemData.id) continue;
-                        const otherLoginDir = path.join(configDirPath, dir.name, "login_data");
-                        if (fs.existsSync(otherLoginDir)) {
-                            const targetDir = path.join(loginRootDir, dir.name);
-                            this.#copyDirSync(otherLoginDir, targetDir);
-                            logger.info(`已从账号 ${dir.name} 复制会话数据到 ${targetDir}`);
-                            hasExistingSession = true;
-                            break;
-                        }
-                    }
-                }
-                if (!hasExistingSession) {
-                    logger.warn(`没有任何已保存账号的 login_data，免登可能失败`);
-                }
             }
         }else{
             fs.rmSync(path.join(wechatFilePath, "all_users", "config", "global_config"), { force: true });
