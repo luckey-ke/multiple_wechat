@@ -185,6 +185,39 @@ class WechatHelp {
     }
 
     /**
+     * 替换 global_config 文件
+     * 策略：先尝试直接删除+复制；若目标文件被锁定（Windows 上 rmSync 会静默失败），
+     * 则用 rename 将锁定文件移走（Windows 允许 rename 被锁定的文件），再复制新文件。
+     */
+    #replaceGlobalConfig(configPath, crcPath, srcConfig, srcCrc) {
+        // 尝试直接删除+复制
+        try {
+            fs.rmSync(configPath, { force: true });
+            fs.rmSync(crcPath, { force: true });
+            fs.copyFileSync(srcConfig, configPath);
+            fs.copyFileSync(srcCrc, crcPath);
+            return;
+        } catch (e) {
+            logger.warn("直接替换 global_config 失败，尝试 rename 策略", e?.message);
+        }
+
+        // rename fallback：Windows 允许 rename 被锁定的文件
+        try {
+            if (fs.existsSync(configPath)) {
+                fs.renameSync(configPath, configPath + ".bak");
+            }
+            if (fs.existsSync(crcPath)) {
+                fs.renameSync(crcPath, crcPath + ".bak");
+            }
+            fs.copyFileSync(srcConfig, configPath);
+            fs.copyFileSync(srcCrc, crcPath);
+            logger.info("rename 策略替换 global_config 成功");
+        } catch (e) {
+            throw new Error("无法替换 global_config 文件，请手动关闭微信后重试: " + e.message);
+        }
+    }
+
+    /**
      * 启动微信
      * @returns {Promise<void>}
      * @param itemData
@@ -196,8 +229,6 @@ class WechatHelp {
         if (await isWeixinRunning()) {
             logger.info('检测到微信正在运行，先终止进程');
             await killWeixinProcess();
-            // 等待进程完全退出和文件释放
-            await new Promise(r => setTimeout(r, 1000));
         }
 
         // 重新登录一个新的微信账号
@@ -208,16 +239,18 @@ class WechatHelp {
 
             const configPath = path.join(wechatFilePath, "all_users", "config", "global_config");
             const crcPath = path.join(wechatFilePath, "all_users", "config", "global_config.crc");
+            const srcConfig = path.join(itemData.path, "global_config");
+            const srcCrc = path.join(itemData.path, "global_config.crc");
 
-            // 进程已终止，直接复制即可
+            if (!fs.existsSync(srcConfig) || !fs.existsSync(srcCrc)) {
+                throw new Error("备份的配置文件不存在，请重新保存微信账号");
+            }
+
             try {
-                fs.rmSync(configPath, { force: true });
-                fs.rmSync(crcPath, { force: true });
-                fs.copyFileSync(path.join(itemData.path, "global_config"), configPath);
-                fs.copyFileSync(path.join(itemData.path, "global_config.crc"), crcPath);
+                this.#replaceGlobalConfig(configPath, crcPath, srcConfig, srcCrc);
             } catch (e) {
                 logger.error("复制 global_config 失败", e?.message);
-                throw new Error("无法替换 global_config 文件: " + e.message);
+                throw new Error("无法替换 global_config 文件，请手动关闭微信后重试: " + e.message);
             }
         }else{
             fs.rmSync(path.join(wechatFilePath, "all_users", "config", "global_config"), { force: true });
