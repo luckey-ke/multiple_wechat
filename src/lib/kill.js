@@ -126,50 +126,28 @@ function isWeixinRunning() {
 
 /**
  * 优雅终止微信进程（先尝试正常关闭，超时后强制结束）
- * 内置等待进程退出和文件句柄释放的逻辑
  */
 function killWeixinProcess() {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         // 先尝试用 taskkill 发送关闭信号
-        exec('taskkill /IM Weixin.exe', (err) => {
+        exec('taskkill /IM Weixin.exe', (err, stdout) => {
             if (!err) {
                 logger.info('微信进程已正常关闭');
-                return waitForExitThenResolve(resolve);
+                return resolve();
             }
             // 正常关闭失败，强制结束
             logger.warn('正常关闭失败，尝试强制结束');
-            exec('taskkill /F /IM Weixin.exe', (forceErr) => {
+            exec('taskkill /F /IM Weixin.exe', (forceErr, forceStdout) => {
                 if (forceErr) {
+                    // 进程可能已经不存在了
                     logger.info('微信进程已退出或不存在');
                     return resolve();
                 }
                 logger.info('微信进程已强制结束');
-                waitForExitThenResolve(resolve);
+                resolve();
             });
         });
     });
-}
-
-/**
- * 轮询等待 Weixin.exe 真正退出，再额外等 500ms 释放文件句柄
- */
-function waitForExitThenResolve(resolve) {
-    const maxWait = 5000;
-    const start = Date.now();
-    const poll = () => {
-        exec('tasklist /FI "IMAGENAME eq Weixin.exe" /NH', (err, stdout) => {
-            const alive = !err && stdout.includes('Weixin.exe');
-            if (alive && Date.now() - start < maxWait) {
-                return setTimeout(poll, 300);
-            }
-            if (alive) {
-                logger.warn('等待微信退出超时(5s)，文件可能仍被锁定');
-            }
-            // 进程已退出或超时，再等 500ms 释放文件句柄
-            setTimeout(resolve, 500);
-        });
-    };
-    poll();
 }
 
 /**
