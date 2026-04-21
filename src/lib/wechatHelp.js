@@ -85,7 +85,7 @@ class WechatHelp {
                         reject(_err)
                     }
                     let data;
-                    if (_encoding === 'uft8'){
+                    if (_encoding === 'utf8'){
                         data = stdout.toString()
                     }else{
                         data = iconv.decode(stdout, "gbk").toString()
@@ -121,7 +121,7 @@ class WechatHelp {
                         reject(_err)
                     }
                     let data;
-                    if (_encoding === 'uft8'){
+                    if (_encoding === 'utf8'){
                         data = stdout.toString()
                     }else{
                         data = iconv.decode(stdout, "gbk").toString()
