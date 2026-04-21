@@ -22,20 +22,16 @@ function closeHandle(pid, handleId) {
         if (fs.existsSync("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe")){
             powershell = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
         }
-        let resolved = false;
         let timer = setTimeout(() => {
-            if (!resolved) {
-                resolved = true;
-                logger.warn(`closeHandle 超时(3s): PID=${pid}, Handle=${handleId}`);
-                resolve();
-            }
+            resolve();
         }, 3000)
         let command = `${powershell} Start-Process "${HANDLE_EXE_PATH}" -ArgumentList @('-c','${handleId}','-p','${pid}','-y') -Verb RunAs -Wait`;
         exec(command, (err, stdout) => {
-            if (resolved) return;
+            logger.info(`执行命令：${command}`);
+
+            logger.info(`执行完成`);
+
             clearTimeout(timer)
-            resolved = true;
-            logger.info(`closeHandle 执行完成: PID=${pid}, Handle=${handleId}`);
             resolve(stdout);
         });
     })
@@ -91,8 +87,8 @@ function releaseMutex() {
     }
     return new Promise((resolve, reject) => {
         exec(`"${HANDLE_EXE_PATH}" -accepteula -p weixin -a ${WECHAT_MUTEX_NAME}`, (err, stdout, stderr) => {
-            if (err) {
-                logger.error('未能查找到互斥体.', stderr || err.message)
+            if (err || stderr) {
+                logger.error('未能查找到互斥体.')
                 return reject('未能查找到互斥体');
             }
 
@@ -108,44 +104,6 @@ function releaseMutex() {
             closeHandle(pid, handleId)
                 .then(resolve)
                 .catch(reject)
-        });
-    });
-}
-
-/**
- * 检查微信进程是否在运行
- */
-function isWeixinRunning() {
-    return new Promise((resolve) => {
-        exec('tasklist /FI "IMAGENAME eq Weixin.exe" /NH', (err, stdout) => {
-            if (err) return resolve(false);
-            resolve(stdout.includes('Weixin.exe'));
-        });
-    });
-}
-
-/**
- * 优雅终止微信进程（先尝试正常关闭，超时后强制结束）
- */
-function killWeixinProcess() {
-    return new Promise((resolve, reject) => {
-        // 先尝试用 taskkill 发送关闭信号
-        exec('taskkill /IM Weixin.exe', (err, stdout) => {
-            if (!err) {
-                logger.info('微信进程已正常关闭');
-                return resolve();
-            }
-            // 正常关闭失败，强制结束
-            logger.warn('正常关闭失败，尝试强制结束');
-            exec('taskkill /F /IM Weixin.exe', (forceErr, forceStdout) => {
-                if (forceErr) {
-                    // 进程可能已经不存在了
-                    logger.info('微信进程已退出或不存在');
-                    return resolve();
-                }
-                logger.info('微信进程已强制结束');
-                resolve();
-            });
         });
     });
 }
@@ -169,10 +127,6 @@ function releaseFileLock(filePath) {
                 logger.error('No process or handle found locking the file.')
                 return reject('No process or handle found locking the file.');
             }
-
-            let pending = matches.length;
-            let hasError = false;
-
             for (const content of matches) {
                 const match = content.match(/pid: (\d+)\s+type: (.*?)\s+([a-zA-Z0-9]+):/i);
                 const [, pid, type, handleId] = match;
@@ -180,17 +134,10 @@ function releaseFileLock(filePath) {
                 // 使用 handle.exe 关闭特定的句柄
                 exec(`${HANDLE_EXE_PATH} -c ${handleId} -p ${pid} -y`, (closeErr, closeStdout, closeStderr) => {
                     if (closeErr) {
-                        if (!hasError) {
-                            hasError = true;
-                            return reject(`Error releasing file lock: ${closeStderr || closeErr.message}`);
-                        }
-                        return;
+                        return reject(`Error releasing file lock: ${closeStderr || closeErr.message}`);
                     }
                     logger.info(`Handle ${handleId} for PID ${pid} released successfully.`);
-                    pending--;
-                    if (pending === 0) {
-                        resolve();
-                    }
+                    resolve();
                 });
             }
         });
@@ -201,7 +148,5 @@ module.exports = {
     releaseMutex,
     downloadHandle,
     releaseFileLock,
-    killWeixinProcess,
-    isWeixinRunning,
     HANDLE_EXE_PATH
 }

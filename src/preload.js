@@ -140,18 +140,8 @@ window.exports = {
             // 子输入框内容变化时被调用 可选 (未设置则无搜索)
             search: async (action, searchWord, callbackSetList) => {
                 // 获取一些数据
-                let list = []
-                try {
-                    list = await buildWechatList();
-                } catch (e) {
-                    logger.error("获取列表失败", e)
-                    utools.showNotification("获取列表失败：" + e.message);
-                    if (e instanceof GoConfigError){
-                        utools.redirect('微信多开配置')
-                    }
-                    return
-                }
-                list = list.filter(item => item.title.includes(searchWord))
+                let list = await buildWechatList();
+                list = list.filter(item => item.name.includes(searchWord))
 
                 // 执行 callbackSetList 显示出来
                 callbackSetList(list)
